@@ -32,6 +32,15 @@ Microsoft's building-footprints data is globally distributed and operationally c
 
 Source dataset: Microsoft Global Building Footprints, global version, with the Indonesia subset selected from the dataset-links metadata.
 
+## Source credit
+
+This project uses data published through Microsoft's official `GlobalMLBuildingFootprints` repository:
+
+- Upstream repository: <https://github.com/microsoft/GlobalMLBuildingFootprints>
+- Repository summary: worldwide building footprints derived from satellite imagery
+
+In this repo, that upstream source is treated as the authoritative starting point for dataset discovery, metadata filtering, and raw download selection. `QuadLake Indonesia` is a separate, manual learning project focused on building a Polars-based Indonesia pipeline on top of that source data.
+
 Important format details:
 
 - The raw files are tile/quadkey-based, not neat administrative country files.
