@@ -49,3 +49,6 @@ Thumbs.db
 # Project-generated data artifacts
 data/raw/
 data/bronze/
+
+# self-notes
+notes/
