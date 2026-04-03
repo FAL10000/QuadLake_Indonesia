@@ -13,26 +13,26 @@ def bronze_convert(path: Path, bronze_dir: Path) -> Path:
 
     df = (
         pl.read_ndjson(path)
-        .unnest("properties")
+        .unnest('properties')
         .with_columns(
-            pl.lit(meta["country"]).alias("country"),
-            pl.lit(meta["quadkey"]).alias("quadkey"),
-            pl.lit(meta["upload_date"]).alias("upload_date"),
-            pl.lit(path.name).alias("source_file"),
+            pl.lit(meta['country']).alias('country'),
+            pl.lit(meta['quadkey']).alias('quadkey'),
+            pl.lit(meta['upload_date']).alias('upload_date'),
+            pl.lit(path.name).alias('source_file'),
         )
     )
 
-    out_path = bronze_dir / path.name.replace(".csv.gz", ".parquet")
+    out_path = bronze_dir / path.name.replace('.csv.gz', '.parquet')
     df.write_parquet(out_path)
 
     return out_path
 
 
-def run_bronze(raw_dir: str = "data/raw", bronze_dir: str = "data/bronze/buildings") -> None:
+def run_bronze(raw_dir: str = 'data/raw', bronze_dir: str = 'data/bronze/buildings') -> None:
     raw_path = Path(raw_dir)
     bronze_path = Path(bronze_dir)
     bronze_path.mkdir(parents=True, exist_ok=True)
 
-    for path in raw_path.glob("*.csv.gz"):
+    for path in raw_path.glob('*.csv.gz'):
         out = bronze_convert(path, bronze_path)
-        print(f"Wrote: {out}")
+        print(f'Wrote: {out}')
