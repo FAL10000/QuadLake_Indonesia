@@ -46,9 +46,5 @@ Thumbs.db
 # Logs and runtime files
 *.log
 
-# Project-generated data artifacts
-data/raw/
-data/bronze/
-
 # self-notes
 notes/
