@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import polars as pl
 
@@ -14,6 +15,9 @@ def silver_convert(path: Path, silver_dir: Path) -> Path:
                 [pl.col('source_file'), pl.lit(':'), pl.col('source_row_index').cast(pl.Utf8)]
             ).alias('silver_record_id'),
             pl.col('geometry').struct.field('type').alias('geometry_type'),
+            pl.col('geometry')
+            .map_elements(json.dumps, return_dtype=pl.Utf8)
+            .alias('geometry_geojson'),
         )
         .filter(
             pl.col('geometry').is_not_null()
@@ -28,6 +32,7 @@ def silver_convert(path: Path, silver_dir: Path) -> Path:
             'silver_record_id',
             'geometry',
             'geometry_type',
+            'geometry_geojson',
         )
     )
 

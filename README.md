@@ -1,100 +1,96 @@
 # QuadLake Indonesia
 
-Polars-based lakehouse project for turning Microsoft's global building-footprints dataset into an Indonesia-only Bronze, Silver, and Gold workflow.
+A solo Polars and geospatial engineering project focused on turning Microsoft's global building-footprints dataset into a reproducible, Indonesia-only lakehouse workflow.
+
+This repository is where I am learning by building. The project starts from a global, tile-based building-footprint dataset and works toward a practical Bronze/Silver/Gold pipeline that can be rerun, validated, and extended into GIS-style analysis.
+
+## Why this project exists
+
+I wanted a project that is bigger and messier than a normal dataframe exercise.
+
+This repo is my way to practice:
+
+- working with large real-world data instead of classroom-sized CSVs
+- using Polars for actual pipeline work, not just small notebook demos
+- handling geospatial-like source data that does not arrive in a clean analyst-ready format
+- designing a lakehouse-style workflow from raw files to reusable analytical outputs
+- building something that can grow into a more serious GIS project later
+
+In short, this project is for learning **Polars**, **data pipeline design**, and **geospatial data handling** through a real Indonesia-focused use case.
+
+## What this project is about
+
+Microsoft's Global Building Footprints dataset is not packaged as one neat Indonesia file in the current global release. It is distributed as many tile or quadkey-based files discovered through a metadata link table. The raw source files also use a misleading `.csv.gz` extension even though they must be parsed as NDJSON/line-delimited GeoJSON-style records rather than normal CSV. :contentReference[oaicite:1]{index=1}
+
+This project takes that source and builds an Indonesia-only processing flow:
+
+1. filter the global metadata down to Indonesia tiles
+2. download the Indonesia raw files
+3. preserve raw files untouched
+4. convert raw source into Bronze Parquet shards
+5. later build cleaner Silver transformations
+6. later build Gold summaries and GIS-ready outputs
+
+## What I am doing here
+
+This repository documents my work as I go, including the mistakes, format discoveries, and pipeline decisions.
+
+What I am actively doing in this repo:
+
+- filtering the upstream global dataset down to Indonesia
+- validating how the raw files are actually structured
+- converting raw tile files into Bronze Parquet with source metadata
+- checking row parity and file parity between raw and Bronze
+- using notebooks first for exploration, then moving logic into reusable pipeline code
+- keeping the project reproducible enough to rerun from source
+
+This is intentionally a **manual solo project**. The point is to learn the workflow, understand the data, and make the architecture decisions myself.
 
 ## Current status
 
-- [x] Indonesia manifest filtered from the global metadata file
-- [x] 601 Indonesia raw source tiles downloaded into `data/raw`
-- [x] NDJSON parsing confirmed for the source `*.csv.gz` files
-- [x] Bronze conversion module implemented in `pipeline/bronze.py`
-- [x] 601 Bronze Parquet shards written to `data/bronze/buildings`
-- [x] Notebook-based Bronze validation completed for counts, metadata, and row parity
-- [ ] Bronze execution hardened into a proper CLI or app entrypoint
+- [x] Indonesia manifest filtered from the upstream metadata
+- [x] Indonesia raw tile downloads completed
+- [x] Confirmed that raw `*.csv.gz` files are not normal CSV
+- [x] Confirmed that Polars NDJSON parsing works on the raw files
+- [x] Built Bronze conversion into Parquet shards
+- [x] Added Bronze validation checks for file mapping and row parity
 - [ ] Silver layer implemented
 - [ ] Gold layer implemented
-
-## Project summary
-
-This repository is a solo learning project for building a small geospatial lakehouse around Microsoft's global building-footprints data. The dataset is not delivered as a clean Indonesia export, so the work here starts from the global manifest, filters Indonesia-specific download links, preserves the original tile files, and builds query-friendly layers on top.
-
-The project is no longer at the "can Bronze be built?" stage. Bronze exists today. The next work is to harden execution and validation outside notebooks, then design and build Silver and Gold.
+- [ ] GIS-style enrichment and analysis layer implemented
 
 ## Source dataset
 
-This project uses data published through Microsoft's official `GlobalMLBuildingFootprints` repository.
+This project uses Microsoft's global building-footprints release as the upstream source. The global dataset is tile-based, updated through a metadata link table, and includes building-footprint records that can be filtered down to Indonesia-specific tiles. The upstream README describes the global release and its update history. :contentReference[oaicite:2]{index=2}
 
-- Upstream repository: <https://github.com/microsoft/GlobalMLBuildingFootprints>
-- Repository summary: worldwide building footprints derived from satellite imagery
+For this repo, the upstream data is treated as the authoritative source for:
 
-In this repo, the upstream source is treated as the authoritative input for dataset discovery, metadata filtering, and raw download selection.
+- dataset discovery
+- Indonesia tile selection
+- raw download links
+- source lineage
 
-## Source format findings
+## Key source-format findings
 
-- The global dataset is organized by tile or quadkey, not by clean country package.
-- Indonesia is assembled from 601 tile-level download links in `source_csv/dataset-links.csv`.
-- Raw files follow the pattern `Indonesia_<quadkey>_<upload_date>.csv.gz`.
-- Despite the `.csv.gz` suffix, the files are not normal CSV.
-- `pl.read_ndjson(...)` works for these files; `read_csv(...)` does not.
-- Each record is a GeoJSON-like feature with `type`, `properties`, and `geometry`.
+A big part of the learning value in this project is understanding the source format correctly.
 
-## Current data layers
+Confirmed so far:
 
-### Raw
+- the current global dataset is organized by tile/quadkey, not by neat country export files
+- Indonesia is assembled from many tile-level source files
+- raw filenames follow an Indonesia + quadkey + upload-date pattern in this repo
+- the raw files use a `.csv.gz` suffix but are not true CSV files
+- `read_csv(...)` is the wrong parser for these files
+- Polars NDJSON reading works for the raw source
+- each parsed row behaves like one building-footprint feature with fields such as `type`, `properties`, and `geometry`
+- a quick GeoPandas sanity check on one sample tile plotted an Aceh-area footprint cluster, confirming that the tile-based structure behaves as expected
 
-- Location: `data/raw`
-- Status: complete for the current Indonesia subset
-- Current count: 601 files
-- Contract: keep raw files untouched for traceability and reprocessing
-
-### Bronze
-
-- Location: `data/bronze/buildings`
-- Status: implemented and populated
-- Current count: 601 Parquet shards
-- Current total rows: 62,906,428
-- Current schema:
-  - `type`
-  - `height`
-  - `confidence`
-  - `geometry`
-  - `country`
-  - `quadkey`
-  - `upload_date`
-  - `source_file`
-
-The Bronze conversion currently:
-
-- reads each raw file with `pl.read_ndjson(...)`
-- unnests `properties`
-- adds `country`, `quadkey`, `upload_date`, and `source_file`
-- writes one Parquet file per raw tile
-
-Bronze validation currently exists in `notebooks/bronze_validation.ipynb` and checks:
-
-- raw file count versus Bronze file count
-- one-to-one filename mapping
-- presence of required metadata columns
-- metadata values derived from filenames
-- row-count parity between each raw file and its Bronze shard
-
-### Silver
-
-- Location: `data/silver`
-- Status: folder exists, transformation layer not implemented
-
-### Gold
-
-- Location: `data/gold`
-- Status: folder exists, output layer not implemented
-
-## Repository layout
+## Repository structure
 
 ```text
 .
 ├── README.md
-├── main.py
 ├── requirements.txt
+├── main.py
 ├── source_csv/
 │   └── dataset-links.csv
 ├── pipeline/
@@ -103,75 +99,8 @@ Bronze validation currently exists in `notebooks/bronze_validation.ipynb` and ch
 │   ├── data_download.ipynb
 │   ├── bronze_pipeline.ipynb
 │   └── bronze_validation.ipynb
-├── notes/
-│   └── quadlake-indonesia-next-stages.md
 └── data/
     ├── raw/
     ├── bronze/
-    │   └── buildings/
     ├── silver/
     └── gold/
-```
-
-## Current execution surface
-
-The current reusable pipeline entrypoint is the `run_bronze(...)` function in `pipeline/bronze.py`.
-
-Example:
-
-```python
-from pipeline.bronze import run_bronze
-
-run_bronze()
-```
-
-`main.py` is still the default PyCharm placeholder script and is not part of the project workflow yet.
-
-## What is done
-
-1. Filtered the global manifest down to the Indonesia subset.
-2. Downloaded the 601 Indonesia source tiles into `data/raw`.
-3. Confirmed the source files must be parsed as NDJSON rather than CSV.
-4. Built notebook logic for Bronze conversion.
-5. Moved Bronze conversion into `pipeline/bronze.py`.
-6. Generated 601 Bronze Parquet shards in `data/bronze/buildings`.
-7. Validated Bronze coverage and raw-to-Bronze row parity in the validation notebook.
-
-## What is next
-
-1. Turn Bronze from "implemented" into "operationally solid" by adding a proper command entrypoint, safer rerun behavior, and persistent validation outputs.
-2. Define the Silver schema and geometry-handling rules explicitly.
-3. Build Silver from Bronze Parquet instead of rereading raw files.
-4. Create the first Gold outputs, starting with building counts and tile-level summaries.
-5. Bring the docs and execution flow to a point where the project can be rebuilt without notebook-only steps.
-
-## Minimal setup
-
-1. Create and activate a Python environment.
-2. Install dependencies from `requirements.txt`.
-3. Keep `data/raw` unchanged after download.
-4. Use Polars NDJSON readers for raw inspection and Parquet readers for Bronze inspection.
-
-Example raw inspection:
-
-```python
-import polars as pl
-
-df = pl.read_ndjson("data/raw/Indonesia_<quadkey>_<upload_date>.csv.gz")
-print(df.columns)
-print(df.head())
-```
-
-## Tech stack
-
-- Python
-- Polars for main data processing
-- Parquet for Bronze storage
-- Jupyter notebooks for exploration and validation
-- GeoPandas and Shapely for occasional spatial sanity checks
-
-## Notes
-
-- This repo still mixes notebook exploration with production code, so it should be treated as an active build workspace rather than a finished package.
-- The Bronze layer is real, but its execution and validation are not fully productionized yet.
-- Silver and Gold are still design-and-build work, not hidden incomplete code.
