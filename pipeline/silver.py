@@ -1,54 +1,11 @@
-from __future__ import annotations
-
-import json
 from pathlib import Path
-
 import polars as pl
 
 
-def list_files(path: Path, pattern: str) -> list[Path]:
-    return sorted(path.glob(pattern))
+def validate_file_mapping(bronze_dir: Path, silver_dir: Path) -> list[str]:
+    bronze_files = sorted(bronze_dir.glob('*.parquet'))
+    silver_files = sorted(silver_dir.glob('*.parquet'))
 
-
-def silver_convert(path: Path, silver_dir: Path) -> Path:
-    out_path = silver_dir / path.name
-
-    lf = (
-        pl.scan_parquet(path)
-        .with_row_index('source_row_index')
-        .with_columns(
-            pl.col('upload_date').str.to_date('%Y-%m-%d'),
-            pl.concat_str(
-                [pl.col('source_file'), pl.lit(':'), pl.col('source_row_index').cast(pl.Utf8)]
-            ).alias('silver_record_id'),
-            pl.col('geometry').struct.field('type').alias('geometry_type'),
-            pl.col('geometry')
-            .map_elements(json.dumps, return_dtype=pl.Utf8)
-            .alias('geometry_geojson'),
-        )
-        .filter(
-            pl.col('geometry').is_not_null()
-            & pl.col('geometry_type').is_in(['Polygon', 'MultiPolygon'])
-        )
-        .select(
-            'country',
-            'quadkey',
-            'upload_date',
-            'source_file',
-            'source_row_index',
-            'silver_record_id',
-            'geometry',
-            'geometry_type',
-            'geometry_geojson',
-        )
-    )
-
-    lf.sink_parquet(out_path)
-
-    return out_path
-
-
-def validate_file_mapping(bronze_files: list[Path], silver_files: list[Path]) -> list[str]:
     errors: list[str] = []
     bronze_names = {file.name for file in bronze_files}
     silver_names = {file.name for file in silver_files}
@@ -68,21 +25,41 @@ def validate_file_mapping(bronze_files: list[Path], silver_files: list[Path]) ->
     return errors
 
 
-def validate_duckdb_ready_columns(silver_files: list[Path]) -> list[str]:
+def validate_geometry_columns(silver_dir: Path) -> list[str]:
+    silver_files = sorted(silver_dir.glob('*.parquet'))
     errors: list[str] = []
+    expected_columns = {
+        'country',
+        'quadkey',
+        'upload_date',
+        'source_file',
+        'source_row_index',
+        'silver_record_id',
+        'geometry',
+        'geometry_type',
+    }
 
     for file in silver_files:
-        schema = pl.scan_parquet(file).collect_schema()
+        schema_names = set(pl.scan_parquet(file).collect_schema().names())
 
-        if 'geometry_geojson' not in schema.names():
-            errors.append(f'Missing geometry_geojson in {file.name}')
+        if 'geometry' not in schema_names:
+            errors.append(f'Missing geometry in {file.name}')
             continue
+
+        if 'geometry_type' not in schema_names:
+            errors.append(f'Missing geometry_type in {file.name}')
+            continue
+
+        unexpected_columns = sorted(schema_names - expected_columns)
+        if unexpected_columns:
+            errors.append(f'{file.name}: unexpected columns {unexpected_columns}')
 
         result = (
             pl.scan_parquet(file)
             .select(
                 pl.len().alias('rows'),
-                pl.col('geometry_geojson').null_count().alias('geometry_geojson_nulls'),
+                pl.col('geometry').null_count().alias('geometry_nulls'),
+                pl.col('geometry_type').null_count().alias('geometry_type_nulls'),
             )
             .collect()
             .row(0, named=True)
@@ -92,39 +69,17 @@ def validate_duckdb_ready_columns(silver_files: list[Path]) -> list[str]:
             errors.append(f'Empty silver file: {file.name}')
             continue
 
-        if result['geometry_geojson_nulls'] > 0:
-            errors.append(
-                f"{file.name}: geometry_geojson has {result['geometry_geojson_nulls']} null rows"
-            )
+        if result['geometry_nulls'] > 0:
+            errors.append(f"{file.name}: geometry has {result['geometry_nulls']} null rows")
+
+        if result['geometry_type_nulls'] > 0:
+            errors.append(f"{file.name}: geometry_type has {result['geometry_type_nulls']} null rows")
 
     return errors
 
 
-def run_silver_validation(
-    bronze_dir: Path = Path('data/bronze/buildings'),
-    silver_dir: Path = Path('data/silver/buildings'),
-) -> dict[str, object]:
-    bronze_files = list_files(bronze_dir, '*.parquet')
-    silver_files = list_files(silver_dir, '*.parquet')
-
-    if not bronze_files:
-        errors = [f'No bronze files found in {bronze_dir}']
-        return {'checks': [('input files', errors)], 'errors': errors}
-
-    if not silver_files:
-        errors = [f'No silver files found in {silver_dir}']
-        return {'checks': [('output files', errors)], 'errors': errors}
-
-    checks = [
-        ('file mapping', validate_file_mapping(bronze_files, silver_files)),
-        ('duckdb-ready geometry_geojson', validate_duckdb_ready_columns(silver_files)),
-    ]
-    errors = [error for _, check_errors in checks for error in check_errors]
-    return {'checks': checks, 'errors': errors}
-
-
-def print_validation_report(report: dict[str, object]) -> None:
-    for label, errors in report['checks']:
+def print_validation_report(checks: list[tuple[str, list[str]]]) -> None:
+    for label, errors in checks:
         if errors:
             print(f'[FAIL] {label}')
             for error in errors:
@@ -136,20 +91,54 @@ def print_validation_report(report: dict[str, object]) -> None:
 def run_silver(
     bronze_dir: str = 'data/bronze/buildings',
     silver_dir: str = 'data/silver/buildings',
-) -> dict[str, object]:
-    silver_path = Path(silver_dir)
-    bronze_path = Path(bronze_dir)
-    silver_path.mkdir(parents=True, exist_ok=True)
+) -> list[tuple[str, list[str]]]:
+    bronze_dir = Path(bronze_dir)
+    silver_dir = Path(silver_dir)
+    silver_dir.mkdir(parents=True, exist_ok=True)
 
-    for path in sorted(bronze_path.glob('*.parquet')):
-        out = silver_convert(path, silver_path)
+    for file in sorted(bronze_dir.glob('*.parquet')):
+        out = silver_dir / file.name
+
+        lf = (
+            pl.scan_parquet(file)
+            .with_row_index('source_row_index')
+            .with_columns(
+                pl.col('upload_date').str.to_date('%Y-%m-%d'),
+                pl.concat_str(
+                    [pl.col('source_file'), pl.lit(':'), pl.col('source_row_index').cast(pl.Utf8)]
+                ).alias('silver_record_id'),
+                pl.col('geometry').struct.field('type').alias('geometry_type'),
+            )
+            .filter(
+                pl.col('geometry').is_not_null()
+                & pl.col('geometry_type').is_in(['Polygon', 'MultiPolygon'])
+            )
+            .select(
+                'country',
+                'quadkey',
+                'upload_date',
+                'source_file',
+                'source_row_index',
+                'silver_record_id',
+                'geometry',
+                'geometry_type',
+            )
+        )
+
+        lf.sink_parquet(out)
         print(f'Wrote: {out}')
 
-    report = run_silver_validation(bronze_path, silver_path)
-    print_validation_report(report)
-    if report['errors']:
-        raise AssertionError('\n'.join(report['errors']))
-    return report
+    checks = [
+        ('file mapping', validate_file_mapping(bronze_dir, silver_dir)),
+        ('geometry columns', validate_geometry_columns(silver_dir)),
+    ]
+    print_validation_report(checks)
+
+    errors = [error for _, check_errors in checks for error in check_errors]
+    if errors:
+        raise AssertionError('\n'.join(errors))
+
+    return checks
 
 
 if __name__ == '__main__':

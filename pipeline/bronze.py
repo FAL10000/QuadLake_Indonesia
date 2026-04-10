@@ -1,48 +1,12 @@
-from __future__ import annotations
-
-import re
 from pathlib import Path
-
 import polars as pl
+import re
 
 
-RAW_FILENAME_PATTERN = re.compile(
-    r'(?P<country>.+)_(?P<quadkey>\d+)_(?P<upload_date>\d{4}-\d{2}-\d{2})\.csv\.gz$'
-)
-BRONZE_FILENAME_PATTERN = re.compile(
-    r'(?P<country>.+)_(?P<quadkey>\d+)_(?P<upload_date>\d{4}-\d{2}-\d{2})\.parquet$'
-)
-VALID_GEOMETRY_TYPES = {'Polygon', 'MultiPolygon'}
+def validate_file_count_and_mapping(raw_dir: Path, bronze_dir: Path) -> list[str]:
+    raw_files = sorted(raw_dir.glob('*.csv.gz'))
+    bronze_files = sorted(bronze_dir.glob('*.parquet'))
 
-
-def list_files(path: Path, pattern: str) -> list[Path]:
-    return sorted(path.glob(pattern))
-
-
-def bronze_convert(path: Path, bronze_dir: Path) -> Path:
-    match = RAW_FILENAME_PATTERN.fullmatch(path.name)
-    if match is None:
-        raise ValueError(f'Unexpected raw filename: {path.name}')
-
-    meta = match.groupdict()
-    out_path = bronze_dir / path.name.replace('.csv.gz', '.parquet')
-
-    (
-        pl.scan_ndjson(path)
-        .unnest('properties')
-        .with_columns(
-            pl.lit(meta['country']).alias('country'),
-            pl.lit(meta['quadkey']).alias('quadkey'),
-            pl.lit(meta['upload_date']).alias('upload_date'),
-            pl.lit(path.name).alias('source_file'),
-        )
-        .sink_parquet(out_path)
-    )
-
-    return out_path
-
-
-def validate_file_count_and_mapping(raw_files: list[Path], bronze_files: list[Path]) -> list[str]:
     errors: list[str] = []
     expected_bronze_names = {raw_file.name.replace('.csv.gz', '.parquet') for raw_file in raw_files}
     actual_bronze_names = {bronze_file.name for bronze_file in bronze_files}
@@ -64,17 +28,22 @@ def validate_file_count_and_mapping(raw_files: list[Path], bronze_files: list[Pa
     return errors
 
 
-def validate_metadata_values(bronze_files: list[Path]) -> list[str]:
+def validate_metadata_values(bronze_dir: Path) -> list[str]:
+    bronze_files = sorted(bronze_dir.glob('*.parquet'))
+    pattern = re.compile(
+        r'(?P<country>.+)_(?P<quadkey>\d+)_(?P<upload_date>\d{4}-\d{2}-\d{2})\.parquet$'
+    )
+
     errors: list[str] = []
 
     for file in bronze_files:
-        match = BRONZE_FILENAME_PATTERN.fullmatch(file.name)
+        match = pattern.match(file.name)
         if match is None:
             errors.append(f'{file.name}: invalid bronze filename')
             continue
 
-        expected = match.groupdict()
-        expected['source_file'] = file.name.replace('.parquet', '.csv.gz')
+        meta = match.groupdict()
+        source_file = file.name.replace('.parquet', '.csv.gz')
 
         result = (
             pl.scan_parquet(file)
@@ -97,10 +66,16 @@ def validate_metadata_values(bronze_files: list[Path]) -> list[str]:
             errors.append(f'{file.name}: empty bronze file')
             continue
 
+        expected = {
+            'country': meta['country'],
+            'quadkey': meta['quadkey'],
+            'upload_date': meta['upload_date'],
+            'source_file': source_file,
+        }
+
         for column in ('country', 'quadkey', 'upload_date', 'source_file'):
-            distinct_key = f'{column}_n_unique'
-            if result[distinct_key] != 1:
-                errors.append(f'{file.name}: {column} has {result[distinct_key]} distinct values')
+            if result[f'{column}_n_unique'] != 1:
+                errors.append(f'{file.name}: {column} has {result[f"{column}_n_unique"]} distinct values')
                 continue
 
             if result[column] != expected[column]:
@@ -111,19 +86,19 @@ def validate_metadata_values(bronze_files: list[Path]) -> list[str]:
     return errors
 
 
-def validate_geometry(bronze_files: list[Path]) -> list[str]:
+def validate_geometry(bronze_dir: Path) -> list[str]:
+    bronze_files = sorted(bronze_dir.glob('*.parquet'))
     errors: list[str] = []
 
     for file in bronze_files:
         geometry_type = pl.col('geometry').struct.field('type')
-
         result = (
             pl.scan_parquet(file)
             .select(
                 pl.col('geometry').null_count().alias('geometry_nulls'),
                 geometry_type.null_count().alias('geometry_type_nulls'),
                 geometry_type
-                .filter(~geometry_type.is_in(list(VALID_GEOMETRY_TYPES)))
+                .filter(~geometry_type.is_in(['Polygon', 'MultiPolygon']))
                 .len()
                 .alias('invalid_geometry_type_rows'),
                 geometry_type.drop_nulls().unique().sort().alias('geometry_types'),
@@ -147,32 +122,8 @@ def validate_geometry(bronze_files: list[Path]) -> list[str]:
     return errors
 
 
-def run_bronze_validation(
-    raw_dir: Path = Path('data/raw'),
-    bronze_dir: Path = Path('data/bronze/buildings'),
-) -> dict[str, object]:
-    raw_files = list_files(raw_dir, '*.csv.gz')
-    bronze_files = list_files(bronze_dir, '*.parquet')
-
-    if not raw_files:
-        errors = [f'No raw files found in {raw_dir}']
-        return {'checks': [('input files', errors)], 'errors': errors}
-
-    if not bronze_files:
-        errors = [f'No bronze files found in {bronze_dir}']
-        return {'checks': [('output files', errors)], 'errors': errors}
-
-    checks = [
-        ('file count and filename mapping', validate_file_count_and_mapping(raw_files, bronze_files)),
-        ('metadata values', validate_metadata_values(bronze_files)),
-        ('geometry', validate_geometry(bronze_files)),
-    ]
-    errors = [error for _, check_errors in checks for error in check_errors]
-    return {'checks': checks, 'errors': errors}
-
-
-def print_validation_report(report: dict[str, object]) -> None:
-    for label, errors in report['checks']:
+def print_validation_report(checks: list[tuple[str, list[str]]]) -> None:
+    for label, errors in checks:
         if errors:
             print(f'[FAIL] {label}')
             for error in errors:
@@ -184,20 +135,49 @@ def print_validation_report(report: dict[str, object]) -> None:
 def run_bronze(
     raw_dir: str = 'data/raw',
     bronze_dir: str = 'data/bronze/buildings',
-) -> dict[str, object]:
-    raw_path = Path(raw_dir)
-    bronze_path = Path(bronze_dir)
-    bronze_path.mkdir(parents=True, exist_ok=True)
+) -> list[tuple[str, list[str]]]:
+    raw_dir = Path(raw_dir)
+    bronze_dir = Path(bronze_dir)
+    bronze_dir.mkdir(parents=True, exist_ok=True)
 
-    for path in sorted(raw_path.glob('*.csv.gz')):
-        out = bronze_convert(path, bronze_path)
-        print(f'Wrote: {out}')
+    pattern = re.compile(
+        r'(?P<country>.+)_(?P<quadkey>\d+)_(?P<upload_date>\d{4}-\d{2}-\d{2})\.csv\.gz$'
+    )
 
-    report = run_bronze_validation(raw_path, bronze_path)
-    print_validation_report(report)
-    if report['errors']:
-        raise AssertionError('\n'.join(report['errors']))
-    return report
+    for path in raw_dir.glob('*.csv.gz'):
+        match = pattern.match(path.name)
+        if match is None:
+            raise ValueError(f'Unexpected raw filename: {path.name}')
+
+        meta = match.groupdict()
+        out_path = bronze_dir / path.name.replace('.csv.gz', '.parquet')
+
+        (
+            pl.scan_ndjson(path)
+            .unnest('properties')
+            .with_columns(
+                pl.lit(meta['country']).alias('country'),
+                pl.lit(meta['quadkey']).alias('quadkey'),
+                pl.lit(meta['upload_date']).alias('upload_date'),
+                pl.lit(path.name).alias('source_file'),
+            )
+            .sink_parquet(out_path)
+        )
+
+        print(f'Wrote: {out_path}')
+
+    checks = [
+        ('file count and filename mapping', validate_file_count_and_mapping(raw_dir, bronze_dir)),
+        ('metadata values', validate_metadata_values(bronze_dir)),
+        ('geometry', validate_geometry(bronze_dir)),
+    ]
+    print_validation_report(checks)
+
+    errors = [error for _, check_errors in checks for error in check_errors]
+    if errors:
+        raise AssertionError('\n'.join(errors))
+
+    return checks
 
 
 if __name__ == '__main__':
