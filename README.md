@@ -35,6 +35,66 @@ Still planned:
 
 - [ ] Building density map analysis in `notebooks/gold_analysis.ipynb`
 
+## Results snapshot
+
+The current Gold outputs support both summary analysis and basic spatial reporting.  
+The figures below show the first reporting layer built from district-level Gold outputs in Tableau.
+
+### District building count and density
+
+This figure compares two district-level views of the Microsoft building footprint dataset across Indonesia's ADM2 boundaries.
+
+- **Building count** shows the total number of Microsoft building footprints assigned to each district.
+- **Building density** normalizes those counts by district area:
+
+`Microsoft building footprint count / district area (km²)`
+
+The count map uses a log-scaled color ramp to improve readability across highly uneven district totals, while the density map highlights compact, built-up districts rather than simply the districts with the largest land area or total counts.
+
+<p align="center">
+  <img src="out/images/district_count_map.png" alt="District Building Count and Density" width="800">
+</p>
+
+**What it shows**
+- High total building counts are concentrated in Java and parts of Sumatra, Sulawesi, and Kalimantan.
+- The density view reveals a different pattern from raw count, highlighting more compact urban districts and municipalities.
+- Several Papua districts fall into the zero-density group because they contain no Microsoft building footprints in the current dataset.
+
+### Top 20 districts by building count and density
+
+This figure compares district rankings by **total building count** and by **building density**.
+
+- The **count ranking** highlights districts contributing the largest raw footprint totals.
+- The **density ranking** highlights districts with the highest concentration of footprints per km².
+
+<p align="center">
+  <img src="out/images/district_count_bar.png" alt="Top 20 Districts by Building Count and Density" width="800">
+</p>
+
+**What it shows**
+- The count leaderboard is dominated by districts with very large total footprint volumes.
+- The density leaderboard is dominated more strongly by `Kota` / urban municipalities.
+- Comparing the two rankings helps separate **scale** from **intensity**, which is more informative than using raw count alone.
+
+### Districts with no Microsoft building footprints
+
+The pipeline also surfaces districts that contain zero Microsoft building footprints after district assignment.
+
+<p align="center">
+  <img src="out/images/missing_districts.png" alt="Districts with No Microsoft Building Footprints" width="800">
+</p>
+
+**What it shows**
+- In the current dataset, 16 districts have no Microsoft building footprints.
+- These districts are clustered in Papua / Papua Pegunungan / Papua Selatan.
+- This figure is useful both as a data-coverage check and as a boundary-assignment QA view.
+
+### Notes
+
+- These figures are derived from Gold-stage district outputs.
+- The current reporting layer is based on district-level administrative summaries, not per-building point rendering.
+- The next analysis step is to add building density maps in `notebooks/gold_analysis.ipynb`, starting from the Gold quadkey counts and sampled Silver building points.
+
 ## What this project currently does
 
 Implemented:
@@ -231,3 +291,9 @@ jupyter lab
 The next planned step is:
 
 - implement the density-map analysis in [notes/quadlake-indonesia-building-density-map-plan.md](/home/fal10/PycharmProjects/QuadLake%20Indonesia/notes/quadlake-indonesia-building-density-map-plan.md)
+
+## License
+
+The original code, notebooks, and documentation in this repository are released under the MIT License.
+
+The data sources used by this project keep their own licenses and are not relicensed by this repository. In particular, Microsoft Global ML Building Footprints and geoBoundaries remain under their original terms, so please check those licenses before redistributing raw data or substantial derived outputs.
