@@ -3,8 +3,13 @@ import polars as pl
 import re
 
 
-def validate_file_count_and_mapping(raw_dir: Path, bronze_dir: Path) -> list[str]:
-    raw_files = sorted(raw_dir.glob('*.csv.gz'))
+def validate_file_count_and_mapping(
+    raw_dir: Path,
+    bronze_dir: Path,
+    raw_files: list[Path] | None = None,
+    strict_unexpected: bool = True,
+) -> list[str]:
+    raw_files = raw_files or sorted(raw_dir.glob('*.csv.gz'))
     bronze_files = sorted(bronze_dir.glob('*.parquet'))
 
     errors: list[str] = []
@@ -22,14 +27,14 @@ def validate_file_count_and_mapping(raw_dir: Path, bronze_dir: Path) -> list[str
     if missing_bronze:
         errors.append(f'missing bronze files: {missing_bronze[:5]}')
 
-    if unexpected_bronze:
+    if strict_unexpected and unexpected_bronze:
         errors.append(f'unexpected bronze files: {unexpected_bronze[:5]}')
 
     return errors
 
 
-def validate_metadata_values(bronze_dir: Path) -> list[str]:
-    bronze_files = sorted(bronze_dir.glob('*.parquet'))
+def validate_metadata_values(bronze_dir: Path, bronze_files: list[Path] | None = None) -> list[str]:
+    bronze_files = bronze_files or sorted(bronze_dir.glob('*.parquet'))
     pattern = re.compile(
         r'(?P<country>.+)_(?P<quadkey>\d+)_(?P<upload_date>\d{4}-\d{2}-\d{2})\.parquet$'
     )
@@ -86,8 +91,8 @@ def validate_metadata_values(bronze_dir: Path) -> list[str]:
     return errors
 
 
-def validate_geometry(bronze_dir: Path) -> list[str]:
-    bronze_files = sorted(bronze_dir.glob('*.parquet'))
+def validate_geometry(bronze_dir: Path, bronze_files: list[Path] | None = None) -> list[str]:
+    bronze_files = bronze_files or sorted(bronze_dir.glob('*.parquet'))
     errors: list[str] = []
 
     for file in bronze_files:
@@ -135,6 +140,7 @@ def print_validation_report(checks: list[tuple[str, list[str]]]) -> None:
 def run_bronze(
     raw_dir: str = 'data/raw',
     bronze_dir: str = 'data/bronze/buildings',
+    max_files: int | None = None,
 ) -> list[tuple[str, list[str]]]:
     raw_dir = Path(raw_dir)
     bronze_dir = Path(bronze_dir)
@@ -144,7 +150,16 @@ def run_bronze(
         r'(?P<country>.+)_(?P<quadkey>\d+)_(?P<upload_date>\d{4}-\d{2}-\d{2})\.csv\.gz$'
     )
 
-    for path in raw_dir.glob('*.csv.gz'):
+    raw_files = sorted(raw_dir.glob('*.csv.gz'))
+    if max_files is not None:
+        raw_files = raw_files[:max_files]
+
+    if not raw_files:
+        raise FileNotFoundError(f'No raw files found in {raw_dir}')
+
+    written_files: list[Path] = []
+
+    for path in raw_files:
         match = pattern.match(path.name)
         if match is None:
             raise ValueError(f'Unexpected raw filename: {path.name}')
@@ -165,11 +180,20 @@ def run_bronze(
         )
 
         print(f'Wrote: {out_path}')
+        written_files.append(out_path)
 
     checks = [
-        ('file count and filename mapping', validate_file_count_and_mapping(raw_dir, bronze_dir)),
-        ('metadata values', validate_metadata_values(bronze_dir)),
-        ('geometry', validate_geometry(bronze_dir)),
+        (
+            'file count and filename mapping',
+            validate_file_count_and_mapping(
+                raw_dir,
+                bronze_dir,
+                raw_files=raw_files,
+                strict_unexpected=max_files is None,
+            ),
+        ),
+        ('metadata values', validate_metadata_values(bronze_dir, written_files)),
+        ('geometry', validate_geometry(bronze_dir, written_files)),
     ]
     print_validation_report(checks)
 

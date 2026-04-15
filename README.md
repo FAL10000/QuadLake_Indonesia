@@ -1,14 +1,14 @@
 # QuadLake Indonesia
 
-Indonesia-focused building-footprints pipeline built with Polars, GeoPandas, and notebooks.
+Indonesia building-footprints pipeline built with Polars, GeoPandas, and notebooks.
 
 ## Overview
 
-This repository explores how to take Microsoft's global building-footprints release and turn it into a smaller, Indonesia-focused workflow that can be inspected, rerun, and validated step by step.
+This repository turns Microsoft's global building-footprints release into an Indonesia-focused pipeline that can be inspected, rerun, and validated step by step.
 
-The source data is not packaged as one clean Indonesia file. It comes from a global link table and many tile-level raw files, and those raw files use a `.csv.gz` extension even though they need to be parsed as NDJSON-style geospatial records rather than normal CSV. This repo works through that reality directly.
+The source data does not come as one clean Indonesia file. It comes from a global link table and many tile-level raw files, and those raw files use a `.csv.gz` extension even though they need to be parsed as NDJSON-style geospatial records rather than normal CSV.
 
-The current focus is building a simple Bronze/Silver/Gold pipeline on top of those raw files, validating each stage, and learning how Polars and geospatial tools fit together on a real dataset. I am using this project to learn by building, not by writing isolated toy examples, so the repo includes both exploratory notebooks and reusable pipeline scripts.
+The project includes a Bronze/Silver/Gold pipeline, stage-level validation, a CLI for raw-to-gold runs, and notebooks for download and analysis.
 
 ## Data sources
 
@@ -29,12 +29,11 @@ Implemented now:
 - [x] Gold aggregation for country, quadkey, province, and district outputs
 - [x] Gold handling for unmatched province and district assignments using nearest-boundary joins
 - [x] Gold validation for file existence, total reconciliation, recovered row counts, and boundary-key integrity
+- [x] A single command-line entry point for Bronze, Silver, Gold, and raw-to-gold orchestration
 
-In progress or not yet done:
+Still planned:
 
-- [ ] A clean command-line interface or packaged application entry point
-- [ ] A polished reporting or presentation layer on top of Gold outputs
-- [ ] More systematic benchmarking, scaling analysis, and pipeline ergonomics
+- [ ] Building density map analysis in `notebooks/gold_analysis.ipynb`
 
 ## What this project currently does
 
@@ -56,11 +55,9 @@ Implemented:
   - nearest-boundary recovery outputs for unmatched rows
 - validates that Gold totals reconcile and that final province/district keys match the boundary reference data
 
-Planned or still rough:
+Planned next:
 
-- cleaner orchestration across all stages
-- better documentation around data assumptions and quality edge cases
-- more analysis notebooks built directly from the Gold outputs
+- build the density-map analysis
 
 ## Data pipeline and architecture
 
@@ -130,11 +127,13 @@ Important files and folders:
   Gold outputs
 - `data/boundaries`
   province and district boundary GeoJSON files used in Gold spatial joins
+- `out/images`
+  generated analysis images such as `district_count_bar.png` and `district_count_map.png`
 
 Notes:
 
-- [main.py](/home/fal10/PycharmProjects/QuadLake%20Indonesia/main.py) is still the default PyCharm stub and is not part of the actual workflow.
-- The repo is currently driven by notebooks and stage scripts rather than a single orchestrated application entry point.
+- [main.py](/home/fal10/PycharmProjects/QuadLake%20Indonesia/main.py) is the command-line entry point for the transformation pipeline.
+- The download step stays notebook-based on purpose. It is **very slow**, and I do not want normal pipeline runs to retry it or wait behind it. `main.py` is for Bronze, Silver, and Gold after the raw files are already in place.
 
 ## How to run
 
@@ -169,24 +168,44 @@ The current download flow is notebook-based:
 - filter the source link table to Indonesia
 - download the raw files into `data/raw`
 
+This step stays in the notebook on purpose. The download is very slow, and retrying it is expensive in time. I do not want `main.py` runs to include that slow step, because it would make normal Bronze/Silver/Gold runs much heavier.
+
+You can check the raw-and-boundary prerequisites before running the pipeline:
+
+```bash
+python main.py check-inputs
+```
+
 ### 3. Run the pipeline stages
 
 Bronze:
 
 ```bash
-python pipeline/bronze.py
+python main.py bronze
 ```
 
 Silver:
 
 ```bash
-python pipeline/silver.py
+python main.py silver
 ```
 
 Gold:
 
 ```bash
-python pipeline/gold.py
+python main.py gold
+```
+
+Run Bronze through Gold in order:
+
+```bash
+python main.py all
+```
+
+Run a small smoke-test subset:
+
+```bash
+python main.py all --max-files 2
 ```
 
 Each script writes its outputs and runs validation checks before returning.
@@ -199,38 +218,16 @@ Use JupyterLab for the exploratory and validation notebooks:
 jupyter lab
 ```
 
-## What I’m learning through this project
-
-This repo is a hands-on learning project, and the technical learning is the point.
-
-Areas I am actively practicing here:
-
-- Polars for file-oriented data processing and aggregation
-- designing a simple medallion-style data flow with Bronze, Silver, and Gold stages
-- working with messy real-world source formats instead of clean analytical tables
-- using GeoPandas and Shapely for spatial joins and geometry-derived features
-- building validation checks into each pipeline stage instead of treating QA as an afterthought
-- reasoning about boundary mismatches and recovery logic in geospatial data
-- keeping notebook exploration aligned with reusable pipeline code
-- improving reproducibility by making stage outputs and checks explicit
-
 ## Known limitations and current gaps
 
-- The repo does not yet have a real CLI, orchestration layer, or configuration system.
 - The download step still lives in a notebook rather than a reusable script.
-- `main.py` is not meaningful yet.
-- The workflow depends on local data directories and boundary files already being present.
-- The README and scripts describe the current pipeline, but the project is still evolving and not packaged as a finished tool.
+- The CLI assumes local raw files and boundary files are already present.
+- There is still no formal configuration system beyond command-line arguments.
 - There is not yet a formal test suite around the pipeline modules.
 - Some geospatial choices are practical rather than fully optimized, for example using a general projected CRS for nearest-boundary recovery.
 
 ## Next steps
 
-Realistic next steps based on the current repo:
+The next planned step is:
 
-- move the Indonesia download flow out of the notebook and into a reusable script
-- tighten Gold QA around recovery-distance distributions and boundary edge cases
-- improve the ergonomics of running the full pipeline end to end
-- document the data assumptions and stage outputs more explicitly
-- build clearer analysis notebooks directly on top of the Gold outputs
-- decide which exploratory notebook logic should be promoted into reusable modules
+- implement the density-map analysis in [notes/quadlake-indonesia-building-density-map-plan.md](/home/fal10/PycharmProjects/QuadLake%20Indonesia/notes/quadlake-indonesia-building-density-map-plan.md)

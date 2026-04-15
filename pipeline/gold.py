@@ -72,6 +72,7 @@ def run_gold(
     gold_dir: str = 'data/gold',
     adm1_path: str = 'data/boundaries/geoBoundaries-IDN-ADM1-provinces.geojson',
     adm2_path: str = 'data/boundaries/geoBoundaries-IDN-ADM2-districts.geojson',
+    max_files: int | None = None,
 ) -> dict[str, int]:
     silver_dir = Path(silver_dir)
     gold_dir = Path(gold_dir)
@@ -79,8 +80,14 @@ def run_gold(
     adm1_path = Path(adm1_path)
     adm2_path = Path(adm2_path)
 
-    silver_glob = (silver_dir / '*.parquet').as_posix()
-    all_silver = pl.scan_parquet(silver_glob)
+    silver_files = sorted(silver_dir.glob('*.parquet'))
+    if max_files is not None:
+        silver_files = silver_files[:max_files]
+
+    if not silver_files:
+        raise FileNotFoundError(f'No silver files found in {silver_dir}')
+
+    all_silver = pl.scan_parquet([path.as_posix() for path in silver_files])
 
     building_count_quadkey = (
         all_silver
@@ -104,7 +111,6 @@ def run_gold(
 
     building_count_country.write_parquet(gold_dir / 'building_count_country.parquet')
 
-    silver_files = sorted(silver_dir.glob('*.parquet'))
     provinces = (
         gpd.read_file(adm1_path)
         [['shapeName', 'shapeISO', 'geometry']]

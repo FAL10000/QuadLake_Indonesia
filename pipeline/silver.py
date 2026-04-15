@@ -2,8 +2,13 @@ from pathlib import Path
 import polars as pl
 
 
-def validate_file_mapping(bronze_dir: Path, silver_dir: Path) -> list[str]:
-    bronze_files = sorted(bronze_dir.glob('*.parquet'))
+def validate_file_mapping(
+    bronze_dir: Path,
+    silver_dir: Path,
+    bronze_files: list[Path] | None = None,
+    strict_unexpected: bool = True,
+) -> list[str]:
+    bronze_files = bronze_files or sorted(bronze_dir.glob('*.parquet'))
     silver_files = sorted(silver_dir.glob('*.parquet'))
 
     errors: list[str] = []
@@ -19,14 +24,15 @@ def validate_file_mapping(bronze_dir: Path, silver_dir: Path) -> list[str]:
     for name in missing_in_silver:
         errors.append(f'Missing in silver: {name}')
 
-    for name in unexpected_in_silver:
-        errors.append(f'Unexpected in silver: {name}')
+    if strict_unexpected:
+        for name in unexpected_in_silver:
+            errors.append(f'Unexpected in silver: {name}')
 
     return errors
 
 
-def validate_geometry_columns(silver_dir: Path) -> list[str]:
-    silver_files = sorted(silver_dir.glob('*.parquet'))
+def validate_geometry_columns(silver_dir: Path, silver_files: list[Path] | None = None) -> list[str]:
+    silver_files = silver_files or sorted(silver_dir.glob('*.parquet'))
     errors: list[str] = []
     expected_columns = {
         'country',
@@ -91,12 +97,22 @@ def print_validation_report(checks: list[tuple[str, list[str]]]) -> None:
 def run_silver(
     bronze_dir: str = 'data/bronze/buildings',
     silver_dir: str = 'data/silver/buildings',
+    max_files: int | None = None,
 ) -> list[tuple[str, list[str]]]:
     bronze_dir = Path(bronze_dir)
     silver_dir = Path(silver_dir)
     silver_dir.mkdir(parents=True, exist_ok=True)
 
-    for file in sorted(bronze_dir.glob('*.parquet')):
+    bronze_files = sorted(bronze_dir.glob('*.parquet'))
+    if max_files is not None:
+        bronze_files = bronze_files[:max_files]
+
+    if not bronze_files:
+        raise FileNotFoundError(f'No bronze files found in {bronze_dir}')
+
+    written_files: list[Path] = []
+
+    for file in bronze_files:
         out = silver_dir / file.name
 
         lf = (
@@ -127,10 +143,19 @@ def run_silver(
 
         lf.sink_parquet(out)
         print(f'Wrote: {out}')
+        written_files.append(out)
 
     checks = [
-        ('file mapping', validate_file_mapping(bronze_dir, silver_dir)),
-        ('geometry columns', validate_geometry_columns(silver_dir)),
+        (
+            'file mapping',
+            validate_file_mapping(
+                bronze_dir,
+                silver_dir,
+                bronze_files=bronze_files,
+                strict_unexpected=max_files is None,
+            ),
+        ),
+        ('geometry columns', validate_geometry_columns(silver_dir, written_files)),
     ]
     print_validation_report(checks)
 
