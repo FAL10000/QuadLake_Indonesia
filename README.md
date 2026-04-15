@@ -93,7 +93,7 @@ The pipeline also surfaces districts that contain zero Microsoft building footpr
 
 - These figures are derived from Gold-stage district outputs.
 - The current reporting layer is based on district-level administrative summaries, not per-building point rendering.
-- The next analysis step is to add building density maps in `notebooks/gold_analysis.ipynb`, starting from the Gold quadkey counts and sampled Silver building points.
+- The next analysis step is to add point-based building density maps in `notebooks/gold_analysis.ipynb`, starting from the Gold quadkey counts and sampled Silver building points.
 
 ## What this project currently does
 
@@ -117,7 +117,7 @@ Implemented:
 
 Planned next:
 
-- build the density-map analysis
+- build the point-based building density maps
 
 ## Data pipeline and architecture
 
@@ -285,12 +285,6 @@ jupyter lab
 - There is still no formal configuration system beyond command-line arguments.
 - There is not yet a formal test suite around the pipeline modules.
 - Some geospatial choices are practical rather than fully optimized, for example using a general projected CRS for nearest-boundary recovery.
-
-## Next steps
-
-The next planned step is:
-
-- implement the density-map analysis in [notes/quadlake-indonesia-building-density-map-plan.md](/home/fal10/PycharmProjects/QuadLake%20Indonesia/notes/quadlake-indonesia-building-density-map-plan.md)
 
 ## License
 
